@@ -3,7 +3,6 @@ from .database import engine
 from . import models
 from .routers import users
 
-# Создаем таблицы
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
