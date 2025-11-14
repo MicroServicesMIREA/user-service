@@ -1,13 +1,13 @@
-name: user-service CI
+name: user-service CI/CD
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main ]
 
 jobs:
-  tests:
+  ci-tests:
     runs-on: ubuntu-latest
 
     services:
@@ -29,12 +29,13 @@ jobs:
       DATABASE_URL: postgresql://library_user:library_password@localhost:5432/library_db
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
       - name: Install dependencies
         run: |
@@ -43,3 +44,15 @@ jobs:
 
       - name: Run tests
         run: pytest
+
+  cd-build-image:
+    runs-on: ubuntu-latest
+    needs: ci-tests
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t user-service:ci-build .
