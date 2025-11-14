@@ -6,16 +6,23 @@ from app.database import SessionLocal, engine
 from app import models
 
 
-def _db_is_available() -> bool:
+def _db_is_ready() -> bool:
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
+            result = conn.execute(
+                text("SELECT to_regclass('user_service.users')")
+            )
+            table_name = result.scalar()
+            if table_name is None:
+                return False
         return True
     except Exception:
         return False
 
+
 def test_create_and_read_user_from_real_db():
-    if not _db_is_available():
+    if not _db_is_ready():
         return
 
     db = SessionLocal()
@@ -44,13 +51,11 @@ def test_create_and_read_user_from_real_db():
         assert fetched.email == email
 
     finally:
-        # На всякий случай откатываем текущую транзакцию
         try:
             db.rollback()
         except Exception:
             pass
 
-        # Пытаемся удалить созданного пользователя (если он есть)
         try:
             db.query(models.User).filter(models.User.user_id == new_id).delete()
             db.commit()
