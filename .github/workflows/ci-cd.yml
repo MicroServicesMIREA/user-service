@@ -2,9 +2,9 @@ name: user-service CI/CD
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   ci-tests:
@@ -32,27 +32,78 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Determine service directory
+        id: service_dir
+        run: |
+          if [ -d "user-service" ]; then
+            echo "SERVICE_DIR=user-service" >> $GITHUB_ENV
+          else
+            echo "SERVICE_DIR=." >> $GITHUB_ENV
+          fi
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install dependencies
+        working-directory: ${{ env.SERVICE_DIR }}
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Run tests
+        working-directory: ${{ env.SERVICE_DIR }}
         run: pytest
 
-  cd-build-image:
+  build-and-push-to-yc:
+    name: Build and Push to YC Registry
     runs-on: ubuntu-latest
     needs: ci-tests
-
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Docker image
+      - name: Determine service directory
+        id: service_dir
         run: |
-          docker build -t user-service:ci-build .
+          if [ -d "user-service" ]; then
+            echo "SERVICE_DIR=user-service" >> $GITHUB_ENV
+          else
+            echo "SERVICE_DIR=." >> $GITHUB_ENV
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build docker image
+        working-directory: ${{ env.SERVICE_DIR }}
+        run: |
+          docker build . --file Dockerfile --tag cr.yandex/${{ secrets.YC_REGISTRY_ID }}/user-service:latest
+
+      - name: Login to YC Registry
+        uses: docker/login-action@v3
+        with:
+          registry: cr.yandex
+          username: json_key
+          password: ${{ secrets.YC_KEYS }}
+
+      - name: Push tag to YC Registry
+        run: |
+          docker push cr.yandex/${{ secrets.YC_REGISTRY_ID }}/user-service:latest
+
+  deploy:
+    name: Deploy to Serverless Container
+    runs-on: ubuntu-latest
+    needs: [build-and-push-to-yc]
+    steps:
+      - name: Deploy serverless container
+        uses: yc-actions/yc-sls-container-deploy@v1
+        with:
+          yc-sa-json-credentials: ${{ secrets.YC_KEYS }}
+          container-name: ${{ secrets.YC_CONTAINER_NAME }}
+          folder-id: ${{ secrets.YC_FOLDER_ID }}
+          revision-image-url: cr.yandex/${{ secrets.YC_REGISTRY_ID }}/user-service:latest
+          revision-service-account-id: ${{ secrets.YC_SA_ID }}
+          revision-env: |
+            DATABASE_URL=${{ secrets.ENV_POSTGRESCURL }}
